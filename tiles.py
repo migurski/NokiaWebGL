@@ -98,8 +98,9 @@ class Provider (IMapProvider):
         
         print >> stderr, 'vertex blocks:', vertex_blocks
 
-        for index in range(textures):
-            print >> stderr, 'vertices', index, '-', vertex_data[index][:2]
+        for i in range(textures):
+            print >> stderr, 'vertices', i, '-', len(vertex_data[i]),
+            print >> stderr, map(min, zip(*vertex_data[i])), 'to', map(max, zip(*vertex_data[i]))
         
         #
         # Pick out the faces for each texture as triples of vertex indexes.
@@ -111,8 +112,9 @@ class Provider (IMapProvider):
         
         print >> stderr, 'face blocks:', face_blocks
 
-        for index in range(textures):
-            print >> stderr, 'faces', index, '-', face_data[index][:7]
+        for i in range(textures):
+            print >> stderr, 'faces', i, '-', len(face_data[i]),
+            print >> stderr, map(min, zip(*face_data[i])), 'to', map(max, zip(*face_data[i]))
         
         #
         # Pick out the filenames of the JPEG textures,
@@ -122,15 +124,31 @@ class Provider (IMapProvider):
         off = 12 + textures * 8
         bitmap_blocks = [unpack('<ii', data[off+8:off+16]) for off in range(off, off + textures * 16, 16)]
         imagename_blocks = [(start + 1, unpack('<B', data[start:start+1])[0]) for (index, start) in bitmap_blocks]
-        image_names = [data[start:start+len] for (start, len) in imagename_blocks]
+        image_names = [data[start:start+length] for (start, length) in imagename_blocks]
         image_urls = [urljoin(url, name) for name in image_names]
         
         print >> stderr, 'bitmap blocks:', bitmap_blocks
         print >> stderr, 'image urls:', image_urls
         
+        #
+        # Output .obj files and JPEGs locally.
+        #
+        
         for texture in range(textures):
+        
+            obj = open('out-%d.obj' % texture, 'w')
+            
             for (x, y, z, u, v) in vertex_data[texture]:
-                print '%(texture)d\t%(x).1f\t%(y).1f\t%(z).1f\t%(u).6f\t%(v).6f' % locals()
+                print >> obj, 'v %.1f %.1f %.1f' % (x, y, z)
+            
+            for (x, y, z, u, v) in vertex_data[texture]:
+                print >> obj, 'vt %.6f %.6f' % (u, v)
+            
+            for (v0, v1, v2) in face_data[texture]:
+                print >> obj, 'f %d/%d %d/%d %d/%d' % (v0+1, v0+1, v1+1, v1+1, v2+1, v2+1)
+            
+            jpg = open('out-%d.jpg' % texture, 'w')
+            jpg.write(urlopen(image_urls[texture]).read())
 
 if __name__ == '__main__':
 
