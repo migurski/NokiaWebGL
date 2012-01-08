@@ -57,6 +57,13 @@ def extract_vertices(data, count):
     
     return vertices
 
+def extract_faces(data, count):
+    """
+    """
+    triangles = [unpack('<HHH', data[off:off+6]) for off in range(0, count*6, 6)]
+    
+    return triangles
+
 class BadZoom (Exception): pass
 
 class Provider (IMapProvider):
@@ -66,18 +73,11 @@ class Provider (IMapProvider):
         t = deriveTransformation(-pi, pi, 0, 0, pi, pi, 1, 0, -pi, -pi, 0, 1)
         self.projection = MercatorProjection(0, t)
 
-    def getTileServer(self, coord):
-        return 'bcde'[int(coord.row + coord.column + coord.zoom) % 4]
-    
-    def getTileUrls(self, coord):
-        server, path = self.getTileServer(coord), coordinatePath(coord)
-        
-        return 'http://%(server)s.maps3d.svc.nokia.com/data4/%(path)s_0.jpg' % locals()
-
-class DataProvider (Provider):
-    
     def getTileData(self, coord):
-        server, path = self.getTileServer(coord), coordinatePath(coord)
+        """
+        """
+        server = 'bcde'[int(coord.row + coord.column + coord.zoom) % 4]
+        path = coordinatePath(coord)
         
         url = 'http://%(server)s.maps3d.svc.nokia.com/data4/%(path)s.n3m' % locals()
         
@@ -96,27 +96,45 @@ class DataProvider (Provider):
         vertex_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 8, 8)]
         vertex_data = [extract_vertices(data[start:], count) for (start, count) in vertex_blocks]
         
+        print >> stderr, 'vertex blocks:', vertex_blocks
+
         for index in range(textures):
-            print >> stderr, index, '-', vertex_data[index][:2]
+            print >> stderr, 'vertices', index, '-', vertex_data[index][:2]
+        
+        #
+        # Pick out the faces for each texture as triples of vertex indexes.
+        #
+        
+        off = 12 + textures * 8
+        face_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 16, 16)]
+        face_data = [extract_faces(data[start:], count) for (start, count) in face_blocks]
+        
+        print >> stderr, 'face blocks:', face_blocks
+
+        for index in range(textures):
+            print >> stderr, 'faces', index, '-', face_data[index][:7]
         
         #
         # Pick out the filenames of the JPEG textures,
         # stored as ASCII strings deeper in the file.
         #
         
-        off = 12 + textures * 8 + 4
-        bitmap_blocks = [unpack('<iiii', data[off:off+16]) for off in range(off, off + textures * 16, 16)]
-        imagename_blocks = [(start + 1, unpack('<B', data[start:start+1])[0]) for (count, index, start, end) in bitmap_blocks]
+        off = 12 + textures * 8
+        bitmap_blocks = [unpack('<ii', data[off+8:off+16]) for off in range(off, off + textures * 16, 16)]
+        imagename_blocks = [(start + 1, unpack('<B', data[start:start+1])[0]) for (index, start) in bitmap_blocks]
         image_names = [data[start:start+len] for (start, len) in imagename_blocks]
         image_urls = [urljoin(url, name) for name in image_names]
         
-        print >> stderr, image_urls
+        print >> stderr, 'bitmap blocks:', bitmap_blocks
+        print >> stderr, 'image urls:', image_urls
         
-        return url
+        for texture in range(textures):
+            for (x, y, z, u, v) in vertex_data[texture]:
+                print '%(texture)d\t%(x).1f\t%(y).1f\t%(z).1f\t%(u).6f\t%(v).6f' % locals()
 
 if __name__ == '__main__':
 
-    p = DataProvider()
+    p = Provider()
     
     if len(argv) == 1:
         lat, lon = 37.804310, -122.271164
@@ -132,5 +150,5 @@ if __name__ == '__main__':
     loc = Location(lat, lon)
     coord = p.locationCoordinate(loc).zoomTo(zoom)
     
-    print p.getTileData(coord)
+    p.getTileData(coord)
     
