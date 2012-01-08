@@ -117,8 +117,20 @@ class DataProvider (Provider):
 if __name__ == '__main__':
 
     p = DataProvider()
-    l = Location(37.804310, -122.271164)
-    z = 18
     
-    print p.getTileData(p.locationCoordinate(l).zoomTo(z))
+    if len(argv) == 1:
+        lat, lon = 37.804310, -122.271164
+        zoom = 18
+
+    elif len(argv) == 4:
+        lat, lon = map(float, argv[1:3])
+        zoom = int(argv[3])
+
+    else:
+        raise Exception('oops')
+    
+    loc = Location(lat, lon)
+    coord = p.locationCoordinate(loc).zoomTo(zoom)
+    
+    print p.getTileData(coord)
     
