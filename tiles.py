@@ -90,7 +90,7 @@ def coordinateHeights(tile_coord):
     
     return bottom, top
 
-def extract_vertices(data, count, (bottom, top)):
+def extract_vertices(data, count, bottom, top):
     """
     """
     xyz_data, uv_data = data[:count*12], data[count*12:]
@@ -98,8 +98,8 @@ def extract_vertices(data, count, (bottom, top)):
     xyz_values = [unpack('<fff', xyz_data[off:off+12]) for off in range(0, count*12, 12)]
     uv_values = [unpack('<ff', uv_data[off:off+8]) for off in range(0, count*8, 8)]
     
-    height = top - bottom
-    vertices = [(x/256, y/256, bottom + height*(z / 2**16), u, v) for ((z, x, y), (u, v)) in zip(xyz_values, uv_values)]
+    scale = (top - bottom) / 2**16
+    vertices = [(x/256, y/256, (bottom + scale*z)/256, u, v) for ((z, x, y), (u, v)) in zip(xyz_values, uv_values)]
     
     return vertices
 
@@ -127,15 +127,29 @@ class Provider (IMapProvider):
         
         url = 'http://%(server)s.maps3d.svc.nokia.com/data4/%(path)s.n3m' % locals()
         
-        height = coordinateHeights(coord)
+        #
+        # Lookup the bottom and top of the tile data in meters, and convert
+        # that to a scale value for the raw z-axis based on current latitude.
+        #
         
-        print >> stderr, height
+        lat_span = abs(self.coordinateLocation(coord).lat - self.coordinateLocation(coord.down()).lat)
+        meter_span = 6378137 * pi * lat_span / 180.0
+        
+        bottom, top = coordinateHeights(coord)
+        print >> stderr, 'bottom, top:', bottom, top
+        
+        bottom, top = bottom * 2**16 / meter_span, top * 2**16 / meter_span
+        
+        print >> stderr, 'bottom, top:', bottom, top
+        
+        #
+        # Open the data and count the textures.
+        #
         
         data = urlopen(url).read()
-        
         (textures, ) = unpack('<i', data[4:8])
         
-        print >> stderr, textures
+        print >> stderr, 'textures:', textures
         
         #
         # Pick out the vertices for the geometry,
@@ -144,7 +158,7 @@ class Provider (IMapProvider):
         
         off = 12
         vertex_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 8, 8)]
-        vertex_data = [extract_vertices(data[start:], count, height) for (start, count) in vertex_blocks]
+        vertex_data = [extract_vertices(data[start:], count, bottom, top) for (start, count) in vertex_blocks]
         
         print >> stderr, 'vertex blocks:', vertex_blocks
 
