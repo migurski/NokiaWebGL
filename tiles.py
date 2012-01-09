@@ -72,7 +72,7 @@ def coordinateHeights(tile_coord):
     #
     
     col = tile_coord.column - lut_coord.zoomTo(tile_coord.zoom).column
-    off += int(col) * 2**zoom
+    off += int(col - 1) * 2**zoom
     
     #
     # Skip to the correct column in the mipmap zoom level, but use the "row"
@@ -80,7 +80,7 @@ def coordinateHeights(tile_coord):
     #
     
     row = tile_coord.row - lut_coord.zoomTo(tile_coord.zoom).row
-    off += 2**zoom - int(row)
+    off += 2**zoom - int(row) - 1
     
     #
     # Read bottom and top heights in meters.
