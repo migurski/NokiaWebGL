@@ -23,6 +23,8 @@ def toNokia(col, row, zoom):
     return x, y, zoom
 
 def coordinatePath(coord):
+    """
+    """
     x, y, z = toNokia(int(coord.column), int(coord.row), int(coord.zoom))
     
     #
@@ -45,7 +47,50 @@ def coordinatePath(coord):
     
     return '%(z)d/%(dir)s/map_%(z)d_%(y)d_%(x)d' % locals()
 
-def extract_vertices(data, count):
+def coordinateHeights(tile_coord):
+    """
+    """
+    lut_coord = tile_coord.zoomTo(13).container() # height lookup tables exist only at z13
+    server = 'bcde'[int(lut_coord.row + lut_coord.column + lut_coord.zoom) % 4]
+    path = coordinatePath(lut_coord)
+
+    url = 'http://%(server)s.maps3d.svc.nokia.com/data4/%(path)s.lut' % locals()
+    
+    data = urlopen(url).read()
+    zoom = tile_coord.zoom - lut_coord.zoom
+    
+    #
+    # Skip to the beginning of the correct zoom level in the mipmap
+    #
+    
+    dim = 2**zoom, 2**zoom
+    off = sum([0] + [4**i for i in range(zoom)])
+    
+    #
+    # Skip to the correct row in the mipmap zoom level, but use the "col"
+    # value because the data is actually stored on its side, west-up.
+    #
+    
+    col = tile_coord.column - lut_coord.zoomTo(tile_coord.zoom).column
+    off += int(col) * 2**zoom
+    
+    #
+    # Skip to the correct column in the mipmap zoom level, but use the "row"
+    # value because the data is actually stored on its side, west-up.
+    #
+    
+    row = tile_coord.row - lut_coord.zoomTo(tile_coord.zoom).row
+    off += 2**zoom - int(row)
+    
+    #
+    # Read bottom and top heights in meters.
+    #
+    
+    bottom, top = unpack('<HH', data[off*4:off*4+4])
+    
+    return bottom, top
+
+def extract_vertices(data, count, (bottom, top)):
     """
     """
     xyz_data, uv_data = data[:count*12], data[count*12:]
@@ -53,7 +98,8 @@ def extract_vertices(data, count):
     xyz_values = [unpack('<fff', xyz_data[off:off+12]) for off in range(0, count*12, 12)]
     uv_values = [unpack('<ff', uv_data[off:off+8]) for off in range(0, count*8, 8)]
     
-    vertices = [xyz + uv for (xyz, uv) in zip(xyz_values, uv_values)]
+    height = top - bottom
+    vertices = [(x/256, y/256, bottom + height*(z / 2**16), u, v) for ((z, x, y), (u, v)) in zip(xyz_values, uv_values)]
     
     return vertices
 
@@ -81,6 +127,10 @@ class Provider (IMapProvider):
         
         url = 'http://%(server)s.maps3d.svc.nokia.com/data4/%(path)s.n3m' % locals()
         
+        height = coordinateHeights(coord)
+        
+        print >> stderr, height
+        
         data = urlopen(url).read()
         
         (textures, ) = unpack('<i', data[4:8])
@@ -94,7 +144,7 @@ class Provider (IMapProvider):
         
         off = 12
         vertex_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 8, 8)]
-        vertex_data = [extract_vertices(data[start:], count) for (start, count) in vertex_blocks]
+        vertex_data = [extract_vertices(data[start:], count, height) for (start, count) in vertex_blocks]
         
         print >> stderr, 'vertex blocks:', vertex_blocks
 
