@@ -1,4 +1,6 @@
-﻿from sys import argv, stderr
+﻿import logging
+
+from sys import argv
 from math import log, pow, pi, ceil
 from urlparse import urljoin
 from urllib import urlopen
@@ -82,6 +84,8 @@ def coordinateHeights(tile_coord):
     row = tile_coord.row - lut_coord.zoomTo(tile_coord.zoom).row
     off += 2**zoom - int(row) - 1
     
+    logging.debug('row, col, off: %.3f, %.3f, %d, %d, %s' % (row, col, off*4, 5461*4 + off, repr(data[5461*4 + off])))
+    
     #
     # Read bottom and top heights in meters.
     #
@@ -136,11 +140,10 @@ class Provider (IMapProvider):
         meter_span = 6378137 * pi * lat_span / 180.0
         
         bottom, top = coordinateHeights(coord)
-        print >> stderr, 'bottom, top:', bottom, top
+        logging.debug('bottom, top: %d, %d' % (bottom, top))
         
         bottom, top = bottom * 2**16 / meter_span, top * 2**16 / meter_span
-        
-        print >> stderr, 'bottom, top:', bottom, top
+        logging.debug('bottom, top: %d, %d' % (bottom, top))
         
         #
         # Open the data and count the textures.
@@ -149,7 +152,7 @@ class Provider (IMapProvider):
         data = urlopen(url).read()
         (textures, ) = unpack('<i', data[4:8])
         
-        print >> stderr, 'textures:', textures
+        logging.debug('textures: %d' % textures)
         
         #
         # Pick out the vertices for the geometry,
@@ -160,11 +163,13 @@ class Provider (IMapProvider):
         vertex_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 8, 8)]
         vertex_data = [extract_vertices(data[start:], count, bottom, top) for (start, count) in vertex_blocks]
         
-        print >> stderr, 'vertex blocks:', vertex_blocks
+        logging.debug('vertex blocks: %s' % repr(vertex_blocks))
 
         for i in range(textures):
-            print >> stderr, 'vertices', i, '-', len(vertex_data[i]),
-            print >> stderr, map(min, zip(*vertex_data[i])), 'to', map(max, zip(*vertex_data[i]))
+            tex_info = [i, len(vertex_data[i])]
+            tex_info += map(min, zip(*vertex_data[i]))
+            tex_info += map(max, zip(*vertex_data[i]))
+            logging.debug('vertices %d - %d (%.3f, %.3f, %.3f, %.3f, %.3f) to (%.3f, %.3f, %.3f, %.3f, %.3f)' % tuple(tex_info))
         
         #
         # Pick out the faces for each texture as triples of vertex indexes.
@@ -174,11 +179,13 @@ class Provider (IMapProvider):
         face_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 16, 16)]
         face_data = [extract_faces(data[start:], count) for (start, count) in face_blocks]
         
-        print >> stderr, 'face blocks:', face_blocks
+        logging.debug('face blocks: %s' % repr(face_blocks))
 
         for i in range(textures):
-            print >> stderr, 'faces', i, '-', len(face_data[i]),
-            print >> stderr, map(min, zip(*face_data[i])), 'to', map(max, zip(*face_data[i]))
+            face_info = [i, len(face_data[i])]
+            face_info += map(min, zip(*face_data[i]))
+            face_info += map(max, zip(*face_data[i]))
+            logging.debug('faces %d - %d (%d, %d, %d) to (%d, %d, %d)' % tuple(face_info))
         
         #
         # Pick out the filenames of the JPEG textures,
@@ -191,8 +198,8 @@ class Provider (IMapProvider):
         image_names = [data[start:start+length] for (start, length) in imagename_blocks]
         image_urls = [urljoin(url, name) for name in image_names]
         
-        print >> stderr, 'bitmap blocks:', bitmap_blocks
-        print >> stderr, 'image urls:', image_urls
+        logging.debug('bitmap blocks: %s' % repr(bitmap_blocks))
+        logging.debug('image urls: %s' % ', '.join(image_urls))
         
         #
         # Output .obj files and JPEGs locally.
@@ -215,6 +222,8 @@ class Provider (IMapProvider):
             jpg.write(urlopen(image_urls[texture]).read())
 
 if __name__ == '__main__':
+
+    logging.basicConfig(level=logging.DEBUG, format='%(filename)s %(lineno)d - %(msg)s')
 
     p = Provider()
     
