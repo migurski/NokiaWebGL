@@ -202,24 +202,13 @@ class Provider (IMapProvider):
         logging.debug('image urls: %s' % ', '.join(image_urls))
         
         #
-        # Output .obj files and JPEGs locally.
+        # Return a list of tuples, each with three items:
+        # 1. list of vertices, (x, y, z, u, v)
+        # 2. list of faces, 3-tuple of vertex indexes
+        # 3. texture image URL
         #
         
-        for texture in range(textures):
-        
-            obj = open('out-%d.obj' % texture, 'w')
-            
-            for (x, y, z, u, v) in vertex_data[texture]:
-                print >> obj, 'v %.1f %.1f %.1f' % (x, y, z)
-            
-            for (x, y, z, u, v) in vertex_data[texture]:
-                print >> obj, 'vt %.6f %.6f' % (u, v)
-            
-            for (v0, v1, v2) in face_data[texture]:
-                print >> obj, 'f %d/%d %d/%d %d/%d' % (v0+1, v0+1, v1+1, v1+1, v2+1, v2+1)
-            
-            jpg = open('out-%d.jpg' % texture, 'w')
-            jpg.write(urlopen(image_urls[texture]).read())
+        return zip(vertex_data, face_data, image_urls)
 
 if __name__ == '__main__':
 
@@ -229,7 +218,7 @@ if __name__ == '__main__':
     
     if len(argv) == 1:
         lat, lon = 37.804310, -122.271164
-        zoom = 18
+        zoom = 16
 
     elif len(argv) == 4:
         lat, lon = map(float, argv[1:3])
@@ -241,5 +230,24 @@ if __name__ == '__main__':
     loc = Location(lat, lon)
     coord = p.locationCoordinate(loc).zoomTo(zoom)
     
-    p.getTileData(coord)
+    textures = p.getTileData(coord)
     
+    #
+    # Output .obj files and JPEGs locally.
+    #
+    
+    for (index, (vertices, faces, image_url)) in enumerate(textures):
+
+        obj = open('out-%d.obj' % index, 'w')
+        
+        for (x, y, z, u, v) in vertices:
+            print >> obj, 'v %.1f %.1f %.1f' % (x, y, z)
+        
+        for (x, y, z, u, v) in vertices:
+            print >> obj, 'vt %.6f %.6f' % (u, v)
+        
+        for (v0, v1, v2) in faces:
+            print >> obj, 'f %d/%d %d/%d %d/%d' % (v0+1, v0+1, v1+1, v1+1, v2+1, v2+1)
+        
+        jpg = open('out-%d.jpg' % index, 'w')
+        jpg.write(urlopen(image_url).read())
