@@ -74,7 +74,7 @@ def coordinateHeights(tile_coord):
     #
     
     col = tile_coord.column - lut_coord.zoomTo(tile_coord.zoom).column
-    off += int(col - 1) * 2**zoom
+    off += int(col) * 2**zoom
     
     #
     # Skip to the correct column in the mipmap zoom level, but use the "row"
@@ -82,7 +82,7 @@ def coordinateHeights(tile_coord):
     #
     
     row = tile_coord.row - lut_coord.zoomTo(tile_coord.zoom).row
-    off += 2**zoom - int(row) - 1
+    off += 2**zoom - int(row + 1)
     
     logging.debug('row, col, off: %.3f, %.3f, %d, %d, %s' % (row, col, off*4, 5461*4 + off, repr(data[5461*4 + off])))
     
@@ -97,13 +97,13 @@ def coordinateHeights(tile_coord):
 def extract_vertices(data, count, bottom, top):
     """
     """
-    xyz_data, uv_data = data[:count*12], data[count*12:]
+    zxy_data, uv_data = data[:count*12], data[count*12:]
     
-    xyz_values = [unpack('<fff', xyz_data[off:off+12]) for off in range(0, count*12, 12)]
+    zxy_values = [unpack('<fff', zxy_data[off:off+12]) for off in range(0, count*12, 12)]
     uv_values = [unpack('<ff', uv_data[off:off+8]) for off in range(0, count*8, 8)]
     
     scale = (top - bottom) / 2**16
-    vertices = [(x/256, y/256, (bottom + scale*z)/256, u, v) for ((z, x, y), (u, v)) in zip(xyz_values, uv_values)]
+    vertices = [(x/256, y/256, (bottom + scale*z)/256, u, v) for ((z, x, y), (u, v)) in zip(zxy_values, uv_values)]
     
     return vertices
 
@@ -140,10 +140,10 @@ class Provider (IMapProvider):
         meter_span = 6378137 * pi * lat_span / 180.0
         
         bottom, top = coordinateHeights(coord)
-        logging.debug('bottom, top: %d, %d' % (bottom, top))
+        logging.debug('bottom, top (m): %d, %d' % (bottom, top))
         
         bottom, top = bottom * 2**16 / meter_span, top * 2**16 / meter_span
-        logging.debug('bottom, top: %d, %d' % (bottom, top))
+        logging.debug('bottom, top (u): %d, %d' % (bottom, top))
         
         #
         # Open the data and count the textures.
