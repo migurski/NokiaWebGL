@@ -114,107 +114,108 @@ def extract_faces(data, count):
     
     return triangles
 
-class BadZoom (Exception): pass
+def get_projection():
+    ''' Return the correct spherical mercator project for Nokia.
+    '''
+    # the spherical mercator world tile covers (-π, -π) to (π, π)
+    t = deriveTransformation(-pi, pi, 0, 0, pi, pi, 1, 0, -pi, -pi, 0, 1)
+    return MercatorProjection(0, t)
 
-class Provider (IMapProvider):
+def get_tile_data(coord):
+    """
+    """
+    server = 'bcde'[int(coord.row + coord.column + coord.zoom) % 4]
+    path = coordinatePath(coord)
     
-    def __init__(self):
-        # the spherical mercator world tile covers (-π, -π) to (π, π)
-        t = deriveTransformation(-pi, pi, 0, 0, pi, pi, 1, 0, -pi, -pi, 0, 1)
-        self.projection = MercatorProjection(0, t)
+    url = 'http://%(server)s.maps3d.svc.nokia.com/data4/%(path)s.n3m' % locals()
+    
+    #
+    # Lookup the bottom and top of the tile data in meters, and convert
+    # that to a scale value for the raw z-axis based on current latitude.
+    #
+    proj = get_projection()
+    
+    lat_span = abs(proj.coordinateLocation(coord).lat - proj.coordinateLocation(coord.down()).lat)
+    meter_span = 6378137 * pi * lat_span / 180.0
+    
+    bottom, top = coordinateHeights(coord)
+    logging.debug('bottom, top (m): %d, %d' % (bottom, top))
+    
+    bottom, top = bottom * 2**16 / meter_span, top * 2**16 / meter_span
+    logging.debug('bottom, top (u): %d, %d' % (bottom, top))
+    
+    #
+    # Open the data and count the textures.
+    #
+    
+    data = urlopen(url).read()
+    (textures, ) = unpack('<i', data[4:8])
+    
+    logging.debug('textures: %d' % textures)
+    
+    #
+    # Pick out the vertices for the geometry,
+    # as lists of (x, y, z, u, v) coordinates.
+    #
+    
+    off = 12
+    vertex_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 8, 8)]
+    vertex_data = [extract_vertices(data[start:], count, bottom, top) for (start, count) in vertex_blocks]
+    
+    logging.debug('vertex blocks: %s' % repr(vertex_blocks))
 
-    def getTileData(self, coord):
-        """
-        """
-        server = 'bcde'[int(coord.row + coord.column + coord.zoom) % 4]
-        path = coordinatePath(coord)
-        
-        url = 'http://%(server)s.maps3d.svc.nokia.com/data4/%(path)s.n3m' % locals()
-        
-        #
-        # Lookup the bottom and top of the tile data in meters, and convert
-        # that to a scale value for the raw z-axis based on current latitude.
-        #
-        
-        lat_span = abs(self.coordinateLocation(coord).lat - self.coordinateLocation(coord.down()).lat)
-        meter_span = 6378137 * pi * lat_span / 180.0
-        
-        bottom, top = coordinateHeights(coord)
-        logging.debug('bottom, top (m): %d, %d' % (bottom, top))
-        
-        bottom, top = bottom * 2**16 / meter_span, top * 2**16 / meter_span
-        logging.debug('bottom, top (u): %d, %d' % (bottom, top))
-        
-        #
-        # Open the data and count the textures.
-        #
-        
-        data = urlopen(url).read()
-        (textures, ) = unpack('<i', data[4:8])
-        
-        logging.debug('textures: %d' % textures)
-        
-        #
-        # Pick out the vertices for the geometry,
-        # as lists of (x, y, z, u, v) coordinates.
-        #
-        
-        off = 12
-        vertex_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 8, 8)]
-        vertex_data = [extract_vertices(data[start:], count, bottom, top) for (start, count) in vertex_blocks]
-        
-        logging.debug('vertex blocks: %s' % repr(vertex_blocks))
+    for i in range(textures):
+        tex_info = [i, len(vertex_data[i])]
+        tex_info += map(min, zip(*vertex_data[i]))
+        tex_info += map(max, zip(*vertex_data[i]))
+        logging.debug('vertices %d - %d (%.3f, %.3f, %.3f, %.3f, %.3f) to (%.3f, %.3f, %.3f, %.3f, %.3f)' % tuple(tex_info))
+    
+    #
+    # Pick out the faces for each texture as triples of vertex indexes.
+    #
+    
+    off = 12 + textures * 8
+    face_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 16, 16)]
+    face_data = [extract_faces(data[start:], count) for (start, count) in face_blocks]
+    
+    logging.debug('face blocks: %s' % repr(face_blocks))
 
-        for i in range(textures):
-            tex_info = [i, len(vertex_data[i])]
-            tex_info += map(min, zip(*vertex_data[i]))
-            tex_info += map(max, zip(*vertex_data[i]))
-            logging.debug('vertices %d - %d (%.3f, %.3f, %.3f, %.3f, %.3f) to (%.3f, %.3f, %.3f, %.3f, %.3f)' % tuple(tex_info))
-        
-        #
-        # Pick out the faces for each texture as triples of vertex indexes.
-        #
-        
-        off = 12 + textures * 8
-        face_blocks = [unpack('<ii', data[off:off+8]) for off in range(off, off + textures * 16, 16)]
-        face_data = [extract_faces(data[start:], count) for (start, count) in face_blocks]
-        
-        logging.debug('face blocks: %s' % repr(face_blocks))
+    for i in range(textures):
+        face_info = [i, len(face_data[i])]
+        face_info += map(min, zip(*face_data[i]))
+        face_info += map(max, zip(*face_data[i]))
+        logging.debug('faces %d - %d (%d, %d, %d) to (%d, %d, %d)' % tuple(face_info))
+    
+    #
+    # Pick out the filenames of the JPEG textures,
+    # stored as ASCII strings deeper in the file.
+    #
+    
+    off = 12 + textures * 8
+    bitmap_blocks = [unpack('<ii', data[off+8:off+16]) for off in range(off, off + textures * 16, 16)]
+    imagename_blocks = [(start + 1, unpack('<B', data[start:start+1])[0]) for (index, start) in bitmap_blocks]
+    image_names = [data[start:start+length] for (start, length) in imagename_blocks]
+    image_urls = [urljoin(url, name) for name in image_names]
+    
+    logging.debug('bitmap blocks: %s' % repr(bitmap_blocks))
+    logging.debug('image urls: %s' % ', '.join(image_urls))
+    
+    #
+    # Return a list of tuples, each with three items:
+    # 1. list of vertices, (x, y, z, u, v)
+    # 2. list of faces, 3-tuple of vertex indexes
+    # 3. texture image URL
+    #
+    
+    return zip(vertex_data, face_data, image_urls)
 
-        for i in range(textures):
-            face_info = [i, len(face_data[i])]
-            face_info += map(min, zip(*face_data[i]))
-            face_info += map(max, zip(*face_data[i]))
-            logging.debug('faces %d - %d (%d, %d, %d) to (%d, %d, %d)' % tuple(face_info))
-        
-        #
-        # Pick out the filenames of the JPEG textures,
-        # stored as ASCII strings deeper in the file.
-        #
-        
-        off = 12 + textures * 8
-        bitmap_blocks = [unpack('<ii', data[off+8:off+16]) for off in range(off, off + textures * 16, 16)]
-        imagename_blocks = [(start + 1, unpack('<B', data[start:start+1])[0]) for (index, start) in bitmap_blocks]
-        image_names = [data[start:start+length] for (start, length) in imagename_blocks]
-        image_urls = [urljoin(url, name) for name in image_names]
-        
-        logging.debug('bitmap blocks: %s' % repr(bitmap_blocks))
-        logging.debug('image urls: %s' % ', '.join(image_urls))
-        
-        #
-        # Return a list of tuples, each with three items:
-        # 1. list of vertices, (x, y, z, u, v)
-        # 2. list of faces, 3-tuple of vertex indexes
-        # 3. texture image URL
-        #
-        
-        return zip(vertex_data, face_data, image_urls)
+class BadZoom (Exception): pass
 
 if __name__ == '__main__':
 
     logging.basicConfig(level=logging.DEBUG, format='%(filename)s %(lineno)d - %(msg)s')
 
-    p = Provider()
+    p = get_projection()
     
     if len(argv) == 1:
         lat, lon = 37.804310, -122.271164
@@ -230,7 +231,7 @@ if __name__ == '__main__':
     loc = Location(lat, lon)
     coord = p.locationCoordinate(loc).zoomTo(zoom)
     
-    textures = p.getTileData(coord)
+    textures = get_tile_data(coord)
     
     #
     # Output .obj files and JPEGs locally.
