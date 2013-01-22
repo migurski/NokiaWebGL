@@ -1,14 +1,16 @@
 ﻿import logging
 
 from sys import argv
+from struct import unpack, pack
 from math import log, pow, pi, ceil
 from urlparse import urljoin
 from urllib import urlopen
-from struct import unpack
 
 from ModestMaps.Geo import Location, MercatorProjection, deriveTransformation
 from ModestMaps.Providers import IMapProvider
 from ModestMaps.Core import Coordinate
+
+from TileStache.Core import KnownUnknown
 
 def fromNokia(x, y, zoom):
     """ Return column, row, zoom for Nokia x, y, z.
@@ -210,6 +212,55 @@ def get_tile_data(coord):
     return zip(vertex_data, face_data, image_urls)
 
 class BadZoom (Exception): pass
+
+class PackableFloatList (list):
+    ''' Wrapper for a list of floats with a TileStache-compatible save method.
+    
+        Used by TileProvider, see also http://tilestache.org/doc/#custom-providers
+    '''
+    def save(self, output, format):
+        format = '<fff' if (format == 'Little Endian') else '>fff'
+        
+        for (x, y, z) in zip(self[0::3], self[1::3], self[2::3]):
+            output.write(pack(format, x, y, z))
+
+class TileProvider:
+    ''' TileStache tile provider.
+    
+        See also http://tilestache.org/doc/#custom-providers
+    '''
+    def __init__(self, layer):
+        self.layer = layer
+        
+    def getTypeByExtension(self, extension):
+        '''
+        '''
+        if extension == 'big':
+            return 'application/octet-stream', 'Big Endian'
+
+        if extension == 'little':
+            return 'application/octet-stream', 'Little Endian'
+        
+        raise KnownUnknown('Unknown type: "%s".' % extension)
+    
+    def renderTile(self, width, height, srs, coord):
+        '''
+        
+            Arguments for width, height and srs are ignored.
+        '''
+        data = PackableFloatList()
+        
+        for (vertices, faces, image_urls) in get_tile_data(coord):
+            for (v0, v1, v2) in faces:
+                for (x, y, z, u, v) in (vertices[v0], vertices[v1], vertices[v2]):
+                    # overlap by one tile-pixel
+                    x = (x - 1) * 258./65536.
+                    y = (y - 1) * 258./65536.
+                    z = (z - 1) * 258./65536.
+                
+                    data.extend([x, y, z])
+        
+        return data
 
 if __name__ == '__main__':
 
