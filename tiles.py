@@ -130,6 +130,15 @@ def get_tile_data(coord):
     path = coordinatePath(coord)
     
     url = 'http://%(server)s.maps3d.svc.nokia.com/data4/%(path)s.n3m' % locals()
+
+    #
+    # Attempt to load the data.
+    #
+
+    data = urlopen(url).read()
+
+    if not data:
+        return ()
     
     #
     # Lookup the bottom and top of the tile data in meters, and convert
@@ -147,10 +156,9 @@ def get_tile_data(coord):
     logging.debug('bottom, top (u): %d, %d' % (bottom, top))
     
     #
-    # Open the data and count the textures.
+    # Count the textures in the data.
     #
     
-    data = urlopen(url).read()
     (textures, ) = unpack('<i', data[4:8])
     
     logging.debug('textures: %d' % textures)
